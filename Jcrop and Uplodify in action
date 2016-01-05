@@ -1,0 +1,224 @@
+1.Controller code
+
+@RequestMapping(value = "/uploadIndexPic", method = RequestMethod.POST)
+	public void uploadIndexPic(HttpSession session, HttpServletResponse resp,
+			MultipartFile pic) {
+		resp.setContentType("text/plain;charset=utf-8");
+		PrintWriter out = null;
+		AjaxObj obj = new AjaxObj();
+		
+		try {
+			String oldName = pic.getOriginalFilename();
+			String newName = new Date().getTime() + "."+ FilenameUtils.getExtension(oldName);
+			String realPath = session.getServletContext().getRealPath("");
+			File f = new File(realPath+FILE_PATH+"/temp");
+			if(!f.exists()){
+				f.mkdirs();
+			}
+			
+			out = resp.getWriter();
+			
+			@SuppressWarnings("static-access")
+			BaseInfo baseInfo = BaseInfoUtil.getInstance().read();
+			double w = baseInfo.getIndexPicWidth();
+			double h = baseInfo.getIndexPicHeight();
+			BufferedImage image = ImageIO.read(pic.getInputStream());
+			double nw = image.getWidth();
+			double nh = image.getHeight();
+			System.out.println(w+","+h+"["+nw+","+nh+"]");
+			System.out.println(w/h+","+nw/nh);
+			if(nw>w&&nw/nh<w/h){
+				Builder<BufferedImage> b = Thumbnails.of(image);
+				if(nw-w>150) {
+					b.scale((w+150)/nw);
+				} else {
+					b.scale(1.0);
+				}
+				BufferedImage image1 = b.asBufferedImage();
+				b.toFile(realPath+FILE_PATH+"/temp/"+newName);
+				IndexPicDto indexPicDto = new IndexPicDto();
+				indexPicDto.setNewName(newName);
+				indexPicDto.setOldName(oldName);
+				indexPicDto.setIndexPicHeight(new Double(h).intValue());
+				indexPicDto.setIndexPicWidth(new Double(w).intValue());
+				indexPicDto.setImgHeight(image1.getHeight());
+				indexPicDto.setImgWidth(image1.getWidth());
+				obj.setObj(indexPicDto);
+				obj.setResult(1);
+			}else {
+				obj.setResult(0);
+				obj.setMsg("图片的尺寸不在有效范围中");
+			}
+			
+		} catch (IOException e) {
+			obj.setResult(0);
+			obj.setMsg(e.getMessage());
+		}
+		out.println(JsonUtil.getInstance().obj2json(obj));
+		out.flush();
+	}
+	
+	@RequestMapping(value="/confirmPic",method=RequestMethod.POST)
+	public @ResponseBody AjaxObj confirmPic(HttpSession session,int x,int y,int w,int h,String newName) {
+		AjaxObj ao = new AjaxObj();
+		try {
+			@SuppressWarnings("static-access")
+			BaseInfo baseInfo = BaseInfoUtil.getInstance().read();
+			int pw = baseInfo.getIndexPicWidth();
+			int ph = baseInfo.getIndexPicHeight();
+			String path = session.getServletContext().getRealPath("");
+			String tpath = path+FILE_PATH+"/temp/"+newName;
+			File tf = new File(tpath);
+			BufferedImage bi = ImageIO.read(tf);
+			String npath = path+FILE_PATH+"/"+newName;
+			String ttpath = path+FILE_PATH+"/"+newName;
+			Builder<BufferedImage> b = Thumbnails.of(bi);
+			//写原图
+			BufferedImage bi2 = b.sourceRegion(x, y, w, h).size(pw, ph).asBufferedImage();
+			b.toFile(npath);
+			//写缩略图
+			Thumbnails.of(bi2).scale((double)T_W/(double)pw).toFile(ttpath);
+			tf.delete();
+			ao.setResult(1);
+			return ao;
+		} catch (IOException e) {
+			e.printStackTrace();
+			ao.setResult(0);
+			ao.setMsg(e.getMessage());
+		}
+		return ao;
+	}
+
+2.View code
+
+<link rel="stylesheet" href="<%=request.getContextPath()%>/resources/css/jquery-ui-1.10.4.custom.css" type="text/css">
+<link rel="stylesheet" type="text/css" href="<%=request.getContextPath()%>/resources/css/uploadify.css"/>
+<script src="<%=request.getContextPath()%>/resources/js/jquery.uploadify.js" type="text/javascript"></script>
+<script type="text/javascript" src="<%=request.getContextPath()%>/dwr/engine.js"></script>
+<script type="text/javascript" src="<%=request.getContextPath()%>/dwr/interface/dwrService.js"></script>
+<script type="text/javascript" src="<%=request.getContextPath()%>/resources/js/jquery-ui-1.10.4.custom.js"></script>
+<link rel="stylesheet" type="text/css" href="<%=request.getContextPath()%>/resources/jcrop/css/jquery.Jcrop.css" />
+<script src="<%=request.getContextPath()%>/resources/jcrop/js/jquery.Jcrop.js"></script>
+<script src="<%=request.getContextPath()%>/resources/jcrop/js/browser.js"></script>
+<%-- <script type="text/javascript" src="<%=request.getContextPath()%>/resources/js/indexPic.js"></script> --%>
+<script type="text/javascript">
+$(function (){
+	$("#addBtn").click(function(){
+		//$("#addForm").validate();
+		$("#addForm").submit();
+	});
+    var newName,oldName;
+    var indexPicWidth=0,indexPicHeight=0,imgWidth=0,imgHeight=0;
+	var x,y,w,h;
+	var ctx = $("#ctx").val();
+     $("#indexPic").uploadify({
+ 		swf:ctx+"/resources/img/uploadify.swf",
+ 		uploader:ctx+"/pic/uploadIndexPic",
+ 		fileObjName:"pic",
+ 		multi:false,
+ 		auto:false,
+ 		formData:{"sid":$("#sid").val()},
+ 		fileTypeExts:"*.jpg;*.png;",
+ 		onUploadSuccess:function(file, data, response) {
+ 			var ao = $.parseJSON(data);
+ 			if(ao.result) {
+ 				newName = ao.obj.newName;
+ 				oldName = ao.obj.oldName;
+ 				indexPicWidth = ao.obj.indexPicWidth;
+ 				indexPicHeight = ao.obj.indexPicHeight;
+ 				imgWidth = ao.obj.imgWidth;
+ 				imgHeight = ao.obj.imgHeight;
+ 				$("#indexPicView").append("<img src='"+ctx+"/resources/indexPic/temp/"+newName+"'/><br/><input type='button' value='确定选择' id='confirmSelect'/>");
+ 				$("#indexPicView").before("<div id='pc' style='width:"+indexPicWidth+"px;height:"+indexPicHeight+"px;overflow:hidden;margin-bottom:5px;'><img id='preview' src='"+ctx+"/resources/indexPic/temp/"+newName+"'/></div>");
+ 				alert(newName+","+oldName);
+ 				$("#indexPicView img").Jcrop({
+ 					aspectRatio:indexPicWidth/indexPicHeight,		
+ 					onChange:showPreview,
+ 					onSelect:showPreview,
+ 					setSelect:[0,0,indexPicWidth,indexPicHeight]
+ 				});
+ 				$("#confirmSelect").click(confirmSelect);
+ 			} else {
+ 				alert(ao.msg);
+ 			}
+ 		}
+ 	});
+    $("#uploadFile").click(function(){
+    	$("#indexPic").uploadify("upload","*");
+    });
+    
+	
+	function showPreview(coords)
+	{
+		if (parseInt(coords.w) > 0)
+		{
+			var rx = indexPicWidth / coords.w;
+			var ry = indexPicHeight / coords.h;
+			x = coords.x;
+			y = coords.y;
+			h = coords.h;
+			w = coords.w;
+			jQuery('#preview').css({
+				width: Math.round(rx * imgWidth) + 'px',
+				height: Math.round(ry * imgHeight) + 'px',
+				marginLeft: '-' + Math.round(rx * coords.x) + 'px',
+				marginTop: '-' + Math.round(ry * coords.y) + 'px'
+			});
+		}
+	}
+	
+	function confirmSelect() {
+		//var tn = newName.replace("\.","#");
+		//alert(tn);
+		var path = ctx+"/pic/confirmPic";
+		$.post(path,{w:w,h:h,x:x,y:y,newName:newName},function(data) {
+			if(data) {
+				$("#indexPicView").prev("#pc").remove();
+				$("#indexPicView").html("<img src='"+ctx+"/resources/indexPic/"+newName+"'/>");
+				$("#newName").val(newName);
+			}
+		},"json")
+	}
+});
+</script>
+</head>
+<body>
+	<input type="hidden" id="sid" value="<%=session.getId()%>"/>
+	<input type="hidden" id="ctx" value="<%=request.getContextPath() %>"/>
+	<div id="contents">
+	<section id="page-wrapper">
+	<div class="row">
+		<div class="col-lg-12">
+			<hr>
+		</div>
+		<div class="col-lg-12">
+			<div class="panel panel-primary">
+				<div class="panel-heading">添加文章功能</div>
+				<!-- /.panel-heading -->
+				<form id="addForm" method="post" >
+					<div class="panel-body">
+						<div class="row">
+							<div class="col-lg-12">
+								<div class="form-group">
+									<input type="file" id="indexPic" name="attach"/>
+									<input type="button" id="uploadFile" value="上传文件"/>
+								</div>
+								<div class="form-group">
+									<div id="indexPicView"></div>
+								</div>
+								<div class="form-group">
+									<label>首页图片标题:</label> <input class="form-control" name="title"/>
+								</div>
+								<div class="form-group">
+									<label>首页图片子标题:</label> 
+									<input class="form-control" name="subTitle"/>
+								</div>
+							<div>
+						<div>
+					<div> 
+				</form>
+			</div>
+		</div>
+	</div>
+</body>
+
